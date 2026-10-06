@@ -77,9 +77,9 @@ def ensure_conviction_table(db: Session) -> None:
     pk_ddl = _primary_key_ddl(db.get_bind().dialect.name)
     db.execute(
         text(
-            """
+            f"""
             CREATE TABLE IF NOT EXISTS stock_conviction_records (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id {pk_ddl},
                 symbol TEXT NOT NULL,
                 market TEXT NOT NULL,
                 record_date TEXT NOT NULL,
