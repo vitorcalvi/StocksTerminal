@@ -36,6 +36,13 @@ def _ensure_index(index_name: str, table_name: str, columns: list[str]) -> None:
 
 
 def upgrade() -> None:
+    # Alembic creates version_num as VARCHAR(32) by default. This revision ID is
+    # longer, so PostgreSQL must widen the bookkeeping column before Alembic
+    # records the new revision at the end of this migration.
+    bind = op.get_bind()
+    if bind.dialect.name == "postgresql":
+        op.execute("ALTER TABLE alembic_version ALTER COLUMN version_num TYPE VARCHAR(128)")
+
     if not _has_table("fundamentals_pit"):
         return
 
