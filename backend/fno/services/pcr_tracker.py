@@ -55,9 +55,9 @@ class PCRTracker:
         with engine.begin() as conn:
             conn.execute(
                 text(
-                    """
+                    f"""
                     CREATE TABLE IF NOT EXISTS pcr_snapshots (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        id {pk_ddl},
                         snapshot_date TEXT NOT NULL,
                         symbol TEXT NOT NULL,
                         pcr_oi REAL NOT NULL,
