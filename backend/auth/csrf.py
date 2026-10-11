@@ -5,9 +5,9 @@ The middleware:
 2. Bootstraps a readable CSRF cookie on safe requests so JavaScript can echo it in a header.
 3. Rejects missing or mismatched tokens for non-bearer state-changing requests.
 
-This pattern is safe against CSRF because an attacker's cross-site page
-cannot read the cookie value (SameSite / HttpOnly) and therefore cannot
-forge a matching header.
+CSRF tokens are accessible to same-origin JavaScript so that the SPA can send
+them in a custom header. SameSite=Strict helps block cross-site requests; do
+not use the token cookie as an authentication credential.
 
 NOTE: This only protects state-changing HTTP methods (POST, PUT, DELETE,
 PATCH).  Safe methods (GET, HEAD, OPTIONS) are not checked.
@@ -59,9 +59,6 @@ def _should_skip_csrf(path: str, method: str, has_api_key: bool = False) -> bool
     # third-party page. An X-API-Key header is never attached automatically by a
     # browser, so key-authenticated calls have nothing to forge.
     if has_api_key:
-        return True
-    # Skip for WebSocket upgrade requests.
-    if "upgrade" in (path or "").split("/"):
         return True
     return False
 
