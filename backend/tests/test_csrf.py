@@ -63,7 +63,9 @@ def test_mismatch_is_rejected():
     assert response.status_code == 403
 
 
-def test_safe_request_bootstraps_cookie_and_write_works():
+def test_safe_request_bootstraps_cookie_and_write_works(monkeypatch):
+    # TestClient uses HTTP; production cookies are Secure and require HTTPS.
+    monkeypatch.setenv("OPENTERMINALUI_ENV", "test")
     client = TestClient(app_with_csrf())
     response = client.get("/bootstrap")
     assert response.status_code == 200
