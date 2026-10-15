@@ -2,12 +2,12 @@
 
 The middleware:
 1. Sets a ``_csrf_token`` cookie containing a random token on every response.
-2. Expects a matching ``X-CSRF-Token`` header on state-changing requests.
-3. Rejects requests where the header value does not match the cookie value.
+2. Bootstraps a readable CSRF cookie on safe requests so JavaScript can echo it in a header.
+3. Rejects missing or mismatched tokens for non-bearer state-changing requests.
 
-This pattern is safe against CSRF because an attacker's cross-site page
-cannot read the cookie value (SameSite / HttpOnly) and therefore cannot
-forge a matching header.
+CSRF tokens are accessible to same-origin JavaScript so that the SPA can send
+them in a custom header. SameSite=Strict helps block cross-site requests; do
+not use the token cookie as an authentication credential.
 
 NOTE: This only protects state-changing HTTP methods (POST, PUT, DELETE,
 PATCH).  Safe methods (GET, HEAD, OPTIONS) are not checked.
@@ -60,9 +60,6 @@ def _should_skip_csrf(path: str, method: str, has_api_key: bool = False) -> bool
     # browser, so key-authenticated calls have nothing to forge.
     if has_api_key:
         return True
-    # Skip for WebSocket upgrade requests.
-    if "upgrade" in (path or "").split("/"):
-        return True
     return False
 
 
@@ -76,10 +73,19 @@ class CsrfProtectMiddleware(BaseHTTPMiddleware):
     _COOKIE_MAX_AGE = 86400  # 24 hours
 
     async def dispatch(self, request: Request, call_next) -> Response:
+        authorization = request.headers.get("Authorization", "")
+        # Explicit Bearer or API-key credentials are not automatically attached
+        # by browsers, unlike ambient cookie authentication.
+        has_bearer = authorization.lower().startswith("bearer ")
         if _should_skip_csrf(
-            request.url.path, request.method, bool(request.headers.get("X-API-Key"))
+            request.url.path, request.method,
+            bool(request.headers.get("X-API-Key")) or has_bearer,
         ):
             response = await call_next(request)
+            # A safe request initializes the double-submit cookie before the
+            # first protected write. The SPA reads it via document.cookie.
+            if request.method in {"GET", "HEAD"} and not request.cookies.get(self._COOKIE_NAME):
+                self._set_cookie(response)
             return response
 
         # Read the token from the header.
@@ -88,30 +94,23 @@ class CsrfProtectMiddleware(BaseHTTPMiddleware):
         # Read the token from the cookie.
         cookie_token = request.cookies.get(self._COOKIE_NAME)
 
-        if header_token and cookie_token:
-            # Both present: verify they match using constant-time comparison.
-            if not secrets.compare_digest(header_token, cookie_token):
-                logger.warning("CSRF token mismatch for %s %s", request.method, request.url.path)
-                return JSONResponse({"detail": "CSRF token mismatch"}, status_code=403)
-        elif header_token or cookie_token:
-            # Only one is present: this is suspicious.  For the first request
-            # to a state-changing endpoint we tolerate missing tokens so the
-            # client can fetch the cookie first.  After that, both must be present.
-            # We still set the cookie to prime the client.
-            pass
+        if not header_token or not cookie_token:
+            logger.warning("CSRF token missing for %s %s", request.method, request.url.path)
+            return JSONResponse({"detail": "CSRF token required"}, status_code=403)
+        if not secrets.compare_digest(header_token, cookie_token):
+            logger.warning("CSRF token mismatch for %s %s", request.method, request.url.path)
+            return JSONResponse({"detail": "CSRF token mismatch"}, status_code=403)
+        return await call_next(request)
 
-        response = await call_next(request)
-
-        # Set the CSRF cookie on every response for state-changing endpoints.
-        if request.method in _STATE_CHANGE_METHODS or not cookie_token:
-            token = secrets.token_hex(32)
-            response.set_cookie(
-                key=self._COOKIE_NAME,
-                value=token,
-                httponly=True,
-                samesite="strict",
-                max_age=self._COOKIE_MAX_AGE,
-                secure=os.getenv("OPENTERMINALUI_ENV", "").strip().lower() not in {"dev", "development", "local", "test", "testing"},
-            )
-
-        return response
+    def _set_cookie(self, response: Response) -> None:
+        response.set_cookie(
+            key=self._COOKIE_NAME,
+            value=secrets.token_hex(32),
+            httponly=False,  # SPA must read the token to set X-CSRF-Token.
+            samesite="strict",
+            path="/",
+            max_age=self._COOKIE_MAX_AGE,
+            secure=os.getenv("OPENTERMINALUI_ENV", "").strip().lower() not in {
+                "dev", "development", "local", "test", "testing"
+            },
+        )

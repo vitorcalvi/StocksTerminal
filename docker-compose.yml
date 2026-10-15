@@ -5,7 +5,7 @@ services:
       dockerfile: Dockerfile
     image: openterminalui:latest
     ports:
-      - "${APP_PORT:-8000}:8000"
+      - "127.0.0.1:${APP_PORT:-8000}:8000"
     environment:
       OPENTERMINALUI_ENV: "${OPENTERMINALUI_ENV:-development}"
       FMP_API_KEY: "${FMP_API_KEY:-}"
@@ -61,8 +61,6 @@ services:
 
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
     restart: unless-stopped
 
   postgres:
@@ -71,9 +69,7 @@ services:
     environment:
       POSTGRES_DB: "${POSTGRES_DB:-openterminalui}"
       POSTGRES_USER: "${POSTGRES_USER:-openterminalui}"
-      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-openterminalui}"
-    ports:
-      - "5432:5432"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-}"
     volumes:
       - openterminalui_postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
